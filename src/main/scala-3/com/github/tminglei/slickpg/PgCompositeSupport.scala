@@ -17,6 +17,7 @@ import utils.RegisteredTypeConverter
 case class Args(args: Any*)
 
 sealed trait TokenConverter[T] {
+  type Tyoe
   def fromToken(token: Token): T
 
   def toToken(value: T): Token
@@ -64,37 +65,37 @@ class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
   import scala.deriving.*
   import scala.compiletime.{error, erasedValue, summonInline}
 
-  implicit def baseConverter[T](using fromString: RegisteredTypeConverter[String, T], toString: RegisteredTypeConverter[T, String]): TokenConverter[T] = new TokenConverter[T] {
-    def fromToken(token: Token): T = if (token == Null) null.asInstanceOf[T] else fromString.convert(getString(token, level))
+  implicit def baseConverter[T](using fromString: RegisteredTypeConverter[String, T], toStringFn: RegisteredTypeConverter[T, String]): TokenConverter[T] = new TokenConverter[T] {
+    def fromToken(token: Token): T = if (token == Null) null.asInstanceOf[T] else fromString.convert(getString(token, 0))
 
-    def toToken(value: T): Token = if (value == null) Null else Chunk(toString.convert(value))
+    def toToken(value: T): Token = if (value == null) Null else Chunk(toStringFn.convert(value))
   }
 
-  inline def summonInstances[T, Elems <: Tuple]: List[TokenConverter[?]] = {
+  inline def summonInstances[T <: Struct & Product, Elems <: Tuple ](level: Int): List[TokenConverter[?]] = {
     inline erasedValue[Elems] match {
-      case _: (elem *: elems) => deriveOrSummon[T, elem] :: summonInstances[T, elems]
+      case _: (elem *: elems) => deriveOrSummon[T, elem & Struct & Product](level + 1) :: summonInstances[T, elems](level)
       case _: EmptyTuple => Nil
     }
   }
 
-  inline def deriveOrSummon[T, Elem]: TokenConverter[Elem] = {
+  inline def deriveOrSummon[T <: Struct & Product, Elem <: Struct & Product](level: Int): TokenConverter[Elem] = {
     inline erasedValue[Elem] match {
-      case _: T => deriveRec[T, Elem]
+      case _: T => deriveRec[T, Elem](level)
       case _ => summonInline[TokenConverter[Elem]]
     }
   }
 
-  inline def deriveRec[T, Elem]: TokenConverter[Elem] = {
+  inline def deriveRec[T <: Struct & Product, Elem <: Struct & Product](level: Int): TokenConverter[Elem] = {
     inline erasedValue[T] match {
       case _: Elem => error("infinite recursive derivation")
-      case _ => derived[Elem](using summonInline[Mirror.Of[Elem]]) // recursive derivation
+      case _ => derived[Elem](level + 1)(using summonInline[Mirror.Of[Elem]]) // recursive derivation
     }
   }
 
-  def convertProduct[T](p: Mirror.ProductOf[T], elems: => List[TokenConverter[?]]): TokenConverter[T] =
+  def convertProduct[T <: Struct & Product](p: Mirror.ProductOf[T], elems: => List[TokenConverter[?]]): TokenConverter[T] =
     new TokenConverter[T] {
       def fromToken(token: Token): T =
-        if (token == Null) null
+        if (token == Null) null.asInstanceOf[T]
         else {
           val args =
             getChildren(token)
@@ -106,16 +107,16 @@ class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
       def toToken(value: T): Token =
         if (value == null) Null
         else {
-          val tokens = value.productIterator.zip(elems).map({
-            case (value, converter) => converter.toToken(value)
+          val tokens = value.productIterator.zip(elems).toSeq.map({
+            case (v, converter) => converter.asInstanceOf[TokenConverter[Any]].toToken(v)
           })
           val members = Open("(") +: tokens :+ Close(")")
           GroupToken(members)
         }
     }
 
-  inline def derived[T <: Struct](using m: Mirror.Of[T]): TokenConverter[T] = {
-    lazy val elemInstances = summonInstances[T, m.MirroredElemTypes]
+  inline def derived[T <: Struct & Product](level: Int)(using m: Mirror.Of[T]): TokenConverter[T] = {
+    lazy val elemInstances = summonInstances[T, m.MirroredElemTypes](level + 1)
     inline m match
       case p: Mirror.ProductOf[T] => convertProduct(p, elemInstances)
   }
