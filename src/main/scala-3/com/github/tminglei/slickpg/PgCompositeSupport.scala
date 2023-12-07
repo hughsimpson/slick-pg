@@ -37,8 +37,14 @@ trait PgCompositeSupport extends utils.PgCommonJdbcTypes with array.PgArrayJdbcT
   protected lazy val emptyMembersAsNull = true
 
   //---
-  def createCompositeJdbcType[T <: Struct](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader): GenericJdbcType[T] =
-    throw new UnsupportedOperationException("Composite support is unimplemented for scala 3")
+  inline def createCompositeJdbcType[T <: Struct : Mirror.Of: ClassTag](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader): GenericJdbcType[T] = {
+    lazy val util = new PgCompositeSupportUtils(cl, emptyMembersAsNull)
+    val foo = util.derived[T]
+    new GenericJdbcType[T](sqlTypeName, { input =>
+      val root = grouping(Tokenizer.tokenize(input))
+      foo.fromToken(root)
+    }, value => createString(foo.toToken(value)))
+  }
 
   def createCompositeArrayJdbcType[T <: Struct](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader)(implicit ev: TTag[T], tag: ClassTag[T]): AdvancedArrayJdbcType[T] =
     throw new UnsupportedOperationException("Composite support is unimplemented for scala 3")
@@ -71,28 +77,28 @@ class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
     def toToken(value: T): Token = if (value == null) Null else Chunk(toStringFn.convert(value))
   }
 
-  inline def summonInstances[T <: Struct & Product, Elems <: Tuple ](level: Int): List[TokenConverter[?]] = {
+  inline def summonInstances[T <: Struct, Elems <: Tuple ]: List[TokenConverter[?]] = {
     inline erasedValue[Elems] match {
-      case _: (elem *: elems) => deriveOrSummon[T, elem & Struct & Product](level + 1) :: summonInstances[T, elems](level)
+      case _: (elem *: elems) => deriveOrSummon[T, elem & Struct] :: summonInstances[T, elems]
       case _: EmptyTuple => Nil
     }
   }
 
-  inline def deriveOrSummon[T <: Struct & Product, Elem <: Struct & Product](level: Int): TokenConverter[Elem] = {
+  inline def deriveOrSummon[T <: Struct, Elem <: Struct]: TokenConverter[Elem] = {
     inline erasedValue[Elem] match {
-      case _: T => deriveRec[T, Elem](level)
+      case _: T => deriveRec[T, Elem]
       case _ => summonInline[TokenConverter[Elem]]
     }
   }
 
-  inline def deriveRec[T <: Struct & Product, Elem <: Struct & Product](level: Int): TokenConverter[Elem] = {
+  inline def deriveRec[T <: Struct, Elem <: Struct]: TokenConverter[Elem] = {
     inline erasedValue[T] match {
       case _: Elem => error("infinite recursive derivation")
-      case _ => derived[Elem](level + 1)(using summonInline[Mirror.Of[Elem]]) // recursive derivation
+      case _ => derived[Elem](using summonInline[Mirror.Of[Elem]]) // recursive derivation
     }
   }
 
-  def convertProduct[T <: Struct & Product](p: Mirror.ProductOf[T], elems: => List[TokenConverter[?]]): TokenConverter[T] =
+  def convertProduct[T <: Struct](p: Mirror.ProductOf[T], elems: => List[TokenConverter[?]]): TokenConverter[T] =
     new TokenConverter[T] {
       def fromToken(token: Token): T =
         if (token == Null) null.asInstanceOf[T]
@@ -107,7 +113,7 @@ class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
       def toToken(value: T): Token =
         if (value == null) Null
         else {
-          val tokens = value.productIterator.zip(elems).toSeq.map({
+          val tokens = value.asInstanceOf[Product].productIterator.zip(elems).toSeq.map({
             case (v, converter) => converter.asInstanceOf[TokenConverter[Any]].toToken(v)
           })
           val members = Open("(") +: tokens :+ Close(")")
@@ -115,8 +121,8 @@ class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
         }
     }
 
-  inline def derived[T <: Struct & Product](level: Int)(using m: Mirror.Of[T]): TokenConverter[T] = {
-    lazy val elemInstances = summonInstances[T, m.MirroredElemTypes](level + 1)
+  inline def derived[T <: Struct](using m: Mirror.Of[T]): TokenConverter[T] = {
+    lazy val elemInstances = summonInstances[T, m.MirroredElemTypes]
     inline m match
       case p: Mirror.ProductOf[T] => convertProduct(p, elemInstances)
   }

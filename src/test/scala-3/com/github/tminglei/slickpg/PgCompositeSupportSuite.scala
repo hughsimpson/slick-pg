@@ -10,7 +10,7 @@ import com.github.tminglei.slickpg.composite.Struct
 import org.postgresql.util.HStoreConverter
 import org.scalatest.funsuite.AnyFunSuite
 
-import com.github.tminglei.slickpg.utils.RegisteredTypeConverter
+import com.github.tminglei.slickpg.utils.{RegisteredTypeConverter,TypeConverters}
 
 
 object PgCompositeSupportSuite {
@@ -62,6 +62,7 @@ object PgCompositeSupportSuite {
 
     ///
     trait API extends JdbcAPI with ArrayImplicits {
+      import TypeConverters.*
       implicit val StringToRange: RegisteredTypeConverter[String, Range[LocalDateTime]] =
         RegisteredTypeConverter(PgRangeSupportUtils.mkRangeFn(ts))
       implicit val RangeToString: RegisteredTypeConverter[Range[LocalDateTime], String] =
