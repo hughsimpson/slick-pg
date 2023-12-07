@@ -143,7 +143,7 @@ class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
     type Inc = v.Inc
     implicit val vo: ValueOf[Inc] = ValueOf[Inc](v.++)
     inline erasedValue[Elems] match {
-      case _: (elem *: elems) => deriveOrSummon[ elem, Inc] :: summonInstances[elems, L]
+      case _: (elem *: elems) => deriveOrSummon[elem, Inc] :: summonInstances[elems, L]
       case _: EmptyTuple => Nil
     }
   }
@@ -200,10 +200,7 @@ class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
     }
 
   inline def derived[T <: Struct: ClassTag, L <: BaseLevel[?, ?]: ValueOf](using m: Mirror.Of[T]): TokenConverter[T, L] = {
-    val v: L = valueOf[L]
-    type LInc = v.Inc
-    implicit val vo: ValueOf[LInc] = ValueOf[LInc](v.++)
-    lazy val elemInstances = summonInstances[m.MirroredElemTypes, LInc]
+    lazy val elemInstances = summonInstances[m.MirroredElemTypes, L]
     inline m match
       case p: Mirror.ProductOf[T] => convertProduct(p, elemInstances)
   }
