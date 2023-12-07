@@ -57,8 +57,12 @@ object PgCompositeSupportSuite {
   //-------------------------------------------------------------
   trait MyPostgresProfile1 extends PostgresProfile with PgCompositeSupport with PgArraySupport with utils.PgCommonJdbcTypes {
     def mapToString(m: Map[String, String]): String = HStoreConverter.toString((m).asJava)
-    def stringToMap(s: String): Map[String, String] = (HStoreConverter.fromString(s)
-      .asInstanceOf[java.util.Map[String, String]]).asScala.toMap
+    println(s"Stringy = ${mapToString(Map("t" -> "haha", "t2" -> "133"))}")
+    def stringToMap(s: String): Map[String, String] = {
+      println(s"map string = ${s}")
+      (HStoreConverter.fromString(s)
+        .asInstanceOf[java.util.Map[String, String]]).asScala.toMap
+    }
 
     ///
     trait API extends JdbcAPI with ArrayImplicits {

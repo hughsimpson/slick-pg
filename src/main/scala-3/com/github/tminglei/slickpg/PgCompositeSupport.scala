@@ -149,7 +149,8 @@ class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
   }
 
   inline def deriveOrSummon[ Elem, L <: BaseLevel[?, ?]: ValueOf]: TokenConverter[Elem, L] = summonFrom {
-      case m: Mirror.Of[Elem & Struct] => derived[Elem & Struct, L].asInstanceOf[TokenConverter[Elem, L]]
+      case m: Mirror.Of[Elem & Struct] =>
+        summonFrom { case ct: ClassTag[Elem & Struct] => derived[Elem & Struct, L].asInstanceOf[TokenConverter[Elem, L]] }
       case _: (Elem <:< Option[Any]) =>
         inline erasedValue[Elem] match {
           case _: Option[t] =>
@@ -168,7 +169,7 @@ class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
       case _ => summonInline[TokenConverter[Elem, L]]
   }
 
-  def convertProduct[T <: Struct, L <: BaseLevel[?, ?]: ValueOf](p: Mirror.ProductOf[T], elems: => List[TokenConverter[?, ?]]): TokenConverter[T, L] =
+  def convertProduct[T <: Struct: ClassTag, L <: BaseLevel[?, ?]: ValueOf](p: Mirror.ProductOf[T], elems: => List[TokenConverter[?, ?]]): TokenConverter[T, L] =
     new TokenConverter[T, L](valueOf[L]) {
       def fromToken(token: Token): T =
         if (token == Null) null.asInstanceOf[T]
@@ -177,7 +178,11 @@ class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
             getChildren(token)
               .zip(elems)
               .map { case (token, converter) => converter.fromToken(token) }
-          p.fromProduct(Args(args:_*))
+
+          println(s"BUILDING ${classTag} from ${args}")
+          val res = classTag.runtimeClass.getConstructors.head.newInstance(args:_*).asInstanceOf[T]
+          println(s"holy hell - $res")
+          res
         }
 
       def toToken(value: T): Token =
@@ -194,7 +199,7 @@ class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
         }
     }
 
-  inline def derived[T <: Struct, L <: BaseLevel[?, ?]: ValueOf](using m: Mirror.Of[T]): TokenConverter[T, L] = {
+  inline def derived[T <: Struct: ClassTag, L <: BaseLevel[?, ?]: ValueOf](using m: Mirror.Of[T]): TokenConverter[T, L] = {
     val v: L = valueOf[L]
     type LInc = v.Inc
     implicit val vo: ValueOf[LInc] = ValueOf[LInc](v.++)
