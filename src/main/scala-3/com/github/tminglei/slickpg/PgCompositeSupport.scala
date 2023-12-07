@@ -69,39 +69,68 @@ trait PgCompositeSupport extends utils.PgCommonJdbcTypes with array.PgArrayJdbcT
   //---
   inline def createCompositeJdbcType[T <: Struct : Mirror.Of: ClassTag](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader): GenericJdbcType[T] = {
     lazy val util = new PgCompositeSupportUtils(cl, emptyMembersAsNull)
-    val foo = util.derived[T, Level_1.type ]
+    val c = util.derived[T, Level_1.type ]
     new GenericJdbcType[T](sqlTypeName, { input =>
       val root = grouping(Tokenizer.tokenize(input))
-      foo.fromToken(root)
-    }, value => createString(foo.toToken(value)))
+      c.fromToken(root)
+    }, value => createString(c.toToken(value)))
   }
 
   inline def createCompositeArrayJdbcType[T <: Struct: Mirror.Of: ClassTag](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader): AdvancedArrayJdbcType[T] = {
     lazy val util = new PgCompositeSupportUtils(cl, emptyMembersAsNull)
     implicit val bar: TokenConverter[T, Level0.type ] = util.derived[T, Level0.type ]
-    val foo: TokenConverter[Seq[T], Level_1.type] = util.seqConverter[T, Level0.type](bar)
+    val c: TokenConverter[Seq[T], Level_1.type] = util.seqConverter[T, Level0.type](bar)
     new AdvancedArrayJdbcType[T](sqlTypeName, { input =>
       val root = grouping(Tokenizer.tokenize(input))
-      foo.fromToken(root)
-    }, value => createString(foo.toToken(value)))
+      c.fromToken(root)
+    }, value => createString(c.toToken(value)))
   }
 
   /// Plain SQL support
-  inline def nextComposite[T <: Struct](r: PositionedResult, cl: ClassLoader = getClass.getClassLoader): Option[T] =
-    throw new UnsupportedOperationException("Composite support is unimplemented for scala 3")
-  inline def nextCompositeArray[T <: Struct](r: PositionedResult, cl: ClassLoader = getClass.getClassLoader): Option[Seq[T]] =
-    throw new UnsupportedOperationException("Composite support is unimplemented for scala 3")
-
-  inline def createCompositeSetParameter[T <: Struct](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader)(implicit ev: TTag[T], tag: ClassTag[T]): SetParameter[T] =
-    throw new UnsupportedOperationException("Composite support is unimplemented for scala 3")
-
-  inline def createCompositeOptionSetParameter[T <: Struct](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader)(implicit ev: TTag[T], tag: ClassTag[T]): SetParameter[Option[T]] =
-    throw new UnsupportedOperationException("Composite support is unimplemented for scala 3")
-  inline def createCompositeArraySetParameter[T <: Struct](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader)(implicit ev: TTag[T], tag: ClassTag[T]): SetParameter[Seq[T]]  = {
-    throw new UnsupportedOperationException("Composite support is unimplemented for scala 3")
+  inline def nextComposite[T <: Struct: Mirror.Of: ClassTag](r: PositionedResult, cl: ClassLoader = getClass.getClassLoader): Option[T] = {
+    val util = new PgCompositeSupportUtils(cl, emptyMembersAsNull)
+    val c = util.derived[T, Level_1.type]
+    r.nextStringOption().map { input =>
+      val root = grouping(Tokenizer.tokenize(input))
+      c.fromToken(root)
+    }
   }
-  inline def createCompositeOptionArraySetParameter[T <: Struct](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader)(implicit ev: TTag[T], tag: ClassTag[T]): SetParameter[Option[Seq[T]]] =
-    throw new UnsupportedOperationException("Composite support is unimplemented for scala 3")
+
+  inline def nextCompositeArray[T <: Struct: Mirror.Of: ClassTag](r: PositionedResult, cl: ClassLoader = getClass.getClassLoader): Option[Seq[T]] = {
+    val util = new PgCompositeSupportUtils(cl, emptyMembersAsNull)
+    implicit val bar: TokenConverter[T, Level0.type] = util.derived[T, Level0.type]
+    val c: TokenConverter[Seq[T], Level_1.type] = util.seqConverter[T, Level0.type](bar)
+    r.nextStringOption().map { input =>
+      val root = grouping(Tokenizer.tokenize(input))
+      c.fromToken(root)
+    }
+  }
+
+  inline def createCompositeSetParameter[T <: Struct: Mirror.Of: ClassTag](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader): SetParameter[T] = {
+    val util = new PgCompositeSupportUtils(cl, emptyMembersAsNull)
+    val c = util.derived[T, Level_1.type]
+    utils.PlainSQLUtils.mkSetParameter[T](sqlTypeName, value => createString(c.toToken(value)))
+  }
+
+  inline def createCompositeOptionSetParameter[T <: Struct: Mirror.Of: ClassTag](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader): SetParameter[Option[T]] = {
+    val util = new PgCompositeSupportUtils(cl, emptyMembersAsNull)
+    val c = util.derived[T, Level_1.type]
+    utils.PlainSQLUtils.mkOptionSetParameter[T](sqlTypeName, value => createString(c.toToken(value)))
+  }
+
+  inline def createCompositeArraySetParameter[T <: Struct: Mirror.Of: ClassTag](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader): SetParameter[Seq[T]]  = {
+    val util = new PgCompositeSupportUtils(cl, emptyMembersAsNull)
+    implicit val bar: TokenConverter[T, Level0.type] = util.derived[T, Level0.type]
+    val c: TokenConverter[Seq[T], Level_1.type] = util.seqConverter[T, Level0.type](bar)
+    utils.PlainSQLUtils.mkArraySetParameter[T](sqlTypeName, seqToStr = Some(value => createString(c.toToken(value))))
+  }
+
+  inline def createCompositeOptionArraySetParameter[T <: Struct: Mirror.Of: ClassTag](sqlTypeName: String, cl: ClassLoader = getClass.getClassLoader): SetParameter[Option[Seq[T]]] = {
+    val util = new PgCompositeSupportUtils(cl, emptyMembersAsNull)
+    implicit val bar: TokenConverter[T, Level0.type] = util.derived[T, Level0.type]
+    val c: TokenConverter[Seq[T], Level_1.type] = util.seqConverter[T, Level0.type](bar)
+    utils.PlainSQLUtils.mkArrayOptionSetParameter[T](sqlTypeName, seqToStr = Some(value => createString(c.toToken(value))))
+  }
 }
 
 class PgCompositeSupportUtils(cl: ClassLoader, emptyMembersAsNull: Boolean) {
